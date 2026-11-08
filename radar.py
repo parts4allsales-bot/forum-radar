@@ -8,6 +8,7 @@
   - έτοιμα links αναζήτησης για Facebook ομάδες, Instagram, TikTok, X, car.gr.
 
 Δεν ποστάρει τίποτα μόνο του. Χρειάζεται μόνο Python 3.11+ (χωρίς πρόσθετα).
+Τρέξιμο:  python radar.py            (ή διπλό κλικ στο run.bat)
 """
 
 from __future__ import annotations
@@ -38,13 +39,23 @@ except Exception:  # Windows χωρίς tzdata: τοπική ώρα του υπ�
 
 # ---------------------------------------------------------------- κείμενο
 
+LATIN2GREEK = str.maketrans("abehikmnoptxyz", "αβεηικμνοπτχυζ")
+GREEK = re.compile(r"[α-ω]")
+
+
+def _fix_mixed(word: str) -> str:
+    # "aμορτισερ" (λατινικό a) → "αμορτισερ": λέξεις με ελληνικά και λατινικά γράμματα
+    return word.translate(LATIN2GREEK) if GREEK.search(word) and re.search(r"[a-z]", word) else word
+
+
 def norm(text: str) -> str:
     """Πεζά, χωρίς τόνους, ς→σ, χωρίς HTML — για σύγκριση λέξεων."""
     text = re.sub(r"<[^>]+>", " ", text or "")
     text = html.unescape(text)
     text = unicodedata.normalize("NFD", text)
     text = "".join(c for c in text if unicodedata.category(c) != "Mn")
-    return text.lower().replace("ς", "σ")
+    text = text.lower().replace("ς", "σ")
+    return re.sub(r"\w+", lambda m: _fix_mixed(m.group(0)), text)
 
 
 def plain(text: str, limit: int = 400) -> str:
@@ -128,9 +139,127 @@ def parse_feed(data: bytes) -> list[dict]:
     return items
 
 
+
+# ---------------------------------------------------------------- κατάλογος προϊόντων
+
+POSITION = {"εμπροσ", "πισω", "αριστερα", "δεξια", "ανω", "κατω", "αξονασ", "εσωτερικοσ",
+            "εξωτερικοσ", "εσωτερικο", "εξωτερικο", "κιτ", "σετ", "kit", "set", "με", "και",
+            "χωρισ", "για", "του", "τησ", "των", "το", "η", "ο", "τα", "οι"}
+GENERIC_HEAD = {"βαση", "μοτερ", "αντλια", "σωληνασ", "σωληνακι", "φιλτρο", "αισθητηρασ",
+                "διακοπτησ", "διακοπτεσ", "καλυμμα", "ψυγειο", "βαλβιδα", "δοχειο", "λαστιχο",
+                "μπεκ", "αντισταση", "μπρατσο", "μοχλοσ", "ντιζα", "καπακι", "ταπα", "πεταλουδα",
+                "μετρητησ", "φλαντζα", "συνδετικη", "κεντρικοσ", "λαβη", "χερουλι", "τροχαλια",
+                "ρουλεμαν", "βιδα", "παξιμαδι", "κλιπ", "ελατηριο", "δισκοσ", "πλακα", "θηκη",
+                "κουμπι", "μονάδα", "μοναδα", "τσιμουχα", "συνδεσμοσ", "αεροσακοσ", "καλωδιο"}
+ROMAN = {"1": "i", "2": "ii", "3": "iii", "4": "iv", "5": "v", "6": "vi", "7": "vii", "8": "viii"}
+
+
+def _stem(w: str) -> str:
+    return w[:-2] if len(w) > 6 else (w[:-1] if len(w) > 4 else w)
+
+
+def family_of(title: str) -> tuple[str, str] | None:
+    """Από τον τίτλο βγάζει το είδος ανταλλακτικού: (εμφάνιση, μοτίβο regex)."""
+    head = title.split(" για ")[0] if " για " in title else re.split(r"\s[A-Z]{3,}", title)[0]
+    head = re.sub(r"\([^)]*\)", " ", head)
+    words = []
+    for raw in re.split(r"[\s/,]+", head):
+        n = norm(raw).strip(".-:")
+        if not n or n in POSITION or not GREEK.search(n) or re.search(r"\d", n):
+            continue
+        words.append((raw.strip(".,:-"), n))
+    if not words:
+        return None
+    take = words[:2] if words[0][1] in GENERIC_HEAD and len(words) > 1 else words[:1]
+    if len(take[0][1]) < 4:
+        return None
+    display = " ".join(w for w, _ in take)
+    display = display[0].upper() + display[1:]
+    pat = r"\s+(?:του\s+|τησ\s+|των\s+)?".join(re.escape(_stem(n)) + r"\w*" for _, n in take)
+    return display, r"(?<!\w)" + pat
+
+
+def load_catalog(path: Path) -> dict | None:
+    if not path.exists():
+        return None
+    try:
+        import openpyxl
+    except ImportError:
+        print("  ! Για τον κατάλογο χρειάζεται: pip install openpyxl")
+        return None
+    wb = openpyxl.load_workbook(path, read_only=True)
+    ws = wb["ΤΙΤΛΟΙ"] if "ΤΙΤΛΟΙ" in wb.sheetnames else wb.worksheets[0]
+    fams: dict[str, dict] = {}
+    products, oe = [], {}
+    for row in ws.iter_rows(values_only=True):
+        if not row or len(row) < 2 or not row[0] or not row[1]:
+            continue
+        sku, title = str(row[0]).strip(), str(row[1]).strip()
+        f = family_of(title)
+        if not f:
+            continue
+        fam = fams.setdefault(f[1], {"display": f[0], "pattern": f[1], "count": 0})
+        fam["count"] += 1
+        vehicle = title.split(" για ", 1)[1] if " για " in title else title
+        vehicle = norm(vehicle.split("(OE")[0])
+        products.append((sku, title, f[1], vehicle))
+        m = re.search(r"\(OE:\s*(?:\(OE:\s*)?([^)]*)\)", title)
+        if m:
+            for code in re.split(r"[,;/ ]+", m.group(1)):
+                k = re.sub(r"[^0-9a-z]", "", code.lower())
+                if len(k) >= 6 and re.search(r"\d", k):
+                    oe.setdefault(k, []).append(len(products) - 1)
+    keep = {k: v for k, v in fams.items() if v["count"] >= 3}
+    for v in keep.values():
+        v["re"] = re.compile(v["pattern"])
+    print(f"  ✓ Κατάλογος: {len(products)} προϊόντα, {len(keep)} είδη ανταλλακτικών, {len(oe)} κωδικοί OE")
+    return {"families": keep, "products": products, "oe": oe}
+
+
+def catalog_match(text: str, raw: str, models: list[str], cat: dict) -> dict:
+    """Ποια είδη/προϊόντα του καταλόγου αναφέρονται στη συζήτηση."""
+    fams = [k for k, v in cat["families"].items() if v["re"].search(text)]
+    # κωδικοί OE γραμμένοι στη συζήτηση
+    oe_hits = []
+    for tok in re.findall(r"[0-9A-Za-z][0-9A-Za-z .\-]{4,18}[0-9A-Za-z]", raw):
+        k = re.sub(r"[^0-9a-z]", "", tok.lower())
+        if k in cat["oe"]:
+            oe_hits += cat["oe"][k]
+    # μοντέλα + γενιά (π.χ. "golf 5" → golf v)
+    want = []
+    for mdl in models:
+        n = norm(mdl)
+        g = re.search(re.escape(n) + r"\s*(?:mk\s*)?(\d)(?!\d|\.)", text)
+        want.append((n, g.group(1) if g else None))
+    prods = []
+    if fams and want:
+        for i, (sku, title, fam, veh) in enumerate(cat["products"]):
+            if fam not in fams:
+                continue
+            best = 0
+            for n, gen in want:
+                if re.search(r"(?<!\w)" + re.escape(n) + r"(?!\w)", veh):
+                    best = max(best, 1)
+                    if gen and re.search(r"(?<!\w)" + re.escape(n) + r"\s*(?:" + ROMAN.get(gen, gen)
+                                         + r"|mk\s*" + gen + r"|" + gen + r")(?!\w)", veh):
+                        best = 2
+            if best:
+                prods.append((best, i))
+        sides = [w for w in ("πισω", "εμπροσ", "αριστερ", "δεξι") if re.search(r"(?<!\w)" + w, text)]
+
+        def side_hits(i: int) -> int:
+            t = norm(cat["products"][i][1].split(" για ")[0])
+            return sum(1 for w in sides if w in t)
+        prods.sort(key=lambda x: (-x[0], -side_hits(x[1]), len(cat["products"][x[1]][1])))
+        if any(b == 2 for b, _ in prods):
+            prods = [x for x in prods if x[0] == 2]
+    order = list(dict.fromkeys(oe_hits + [i for _, i in prods]))
+    return {"families": [cat["families"][k]["display"] for k in fams],
+            "oe": bool(oe_hits), "products": [cat["products"][i] for i in order], "fam_keys": fams}
+
 # ---------------------------------------------------------------- βαθμολογία
 
-def score_item(item: dict, kw: dict) -> dict | None:
+def score_item(item: dict, kw: dict, catalog: dict | None = None) -> dict:
     text = norm(item["title"] + " \n " + item["text"])
     brands, models = [], []
     for brand, pats in kw["brands"].items():
@@ -158,12 +287,22 @@ def score_item(item: dict, kw: dict) -> dict | None:
         if re.fullmatch(r"[A-Z]\d+", pick) and brands and brands[0] not in ("Άλλες",):
             label = brands[0] + " " + label
 
+    cm = {"families": [], "oe": False, "products": []}
+    if catalog:
+        raw = plain(item["title"], 10**6) + " " + plain(item["text"], 10**6)
+        cm = catalog_match(text, raw, specific, catalog)
+        # είδη του καταλόγου που δεν τα έπιασαν ήδη οι λέξεις του config
+        known = " ".join(norm(" ".join(h)) for h in parts.values())
+        extra = [f for f in cm["families"] if _stem(norm(f).split()[0]) not in known]
+        if extra:
+            parts["Από κατάλογο"] = extra
+
     real_parts = {c: h for c, h in parts.items() if c != "Γενικά"}
     score = (1 if brands else 0) \
         + min(4, 2 * len(real_parts)) + (1 if "Γενικά" in parts else 0) \
-        + min(2, len(intent))
+        + min(2, len(intent)) + (4 if cm["oe"] else 0) + (1 if cm["products"] else 0)
     return {"score": score, "brands": brands, "models": models, "model_label": label,
-            "parts": parts, "intent": intent}
+            "parts": parts, "intent": intent, "catalog": cm}
 
 
 # ---------------------------------------------------------------- σχέδια απαντήσεων
@@ -193,13 +332,24 @@ GENERIC = ("Καλησπέρα. Για να βρεις το σωστό αντα�
            "πλαισίου (VIN) ή ο κωδικός κινητήρα, γιατί στο ίδιο μοντέλο αλλάζουν οι κωδικοί.")
 
 
-def make_draft(m: dict, store: dict) -> str:
+def make_draft(m: dict, store: dict, kw: dict | None = None) -> str:
     model = m["model_label"] or "αυτοκίνητό σου"
-    cats = [c for c in m["parts"] if c != "Γενικά"]
+    cats = [c for c in m["parts"] if c not in ("Γενικά", "Από κατάλογο")]
     cat = cats[0] if cats else None
     part = m["parts"][cat][0] if cat else ""
+    if not cat and m["parts"].get("Από κατάλογο"):
+        part = m["parts"]["Από κατάλογο"][0]
+        # ταίριαξε το είδος του καταλόγου σε κατηγορία για το σωστό κείμενο
+        for c, pats in (kw or {}).get("parts", {}).items():
+            if any(p.search(norm(part)) for _, p in pats):
+                cat = c
+                break
     body = TEMPLATES.get(cat, GENERIC).format(model=model)
-    q = " ".join(x for x in (part, m["model_label"]) if x).strip()
+    cm = m.get("catalog") or {}
+    if cm.get("oe") and cm.get("products"):
+        q = cm["products"][0][0]  # ακριβής κωδικός προϊόντος
+    else:
+        q = " ".join(x for x in (part, m["model_label"]) if x).strip()
     link = store["search_url"].format(q=urllib.parse.quote(q)) if q else ""
     tail = f"\n\nΑν θες να δεις τι υπάρχει για το μοντέλο σου: {link}" if link else ""
     disclose = f"\n(Για να είμαι ξεκάθαρος: είμαι από το {store['name']}.)"
@@ -246,6 +396,8 @@ textarea{width:100%;box-sizing:border-box;min-height:170px;font-family:inherit;f
 .btns a,.btns button{font-family:inherit;font-size:14px;padding:7px 12px;border-radius:6px;border:1px solid #24427a;background:#24427a;color:#fff;text-decoration:none;cursor:pointer}
 .btns button.sec{background:#fff;color:#24427a}
 .warn{background:#fff8e6;border-color:#f0d58a}
+.cat{background:#eef7f1;border:1px solid #cde6d6;border-radius:6px;padding:8px 10px;margin:8px 0;font-size:13px}
+.cat ul{margin:4px 0 0;padding-left:18px}
 ul.links{columns:2;padding-left:18px;font-size:14px}ul.links li{margin:3px 0}
 @media(max-width:600px){ul.links{columns:1}}
 """
@@ -254,6 +406,17 @@ function cp(id,btn){const t=document.getElementById(id);t.select();
  (navigator.clipboard?navigator.clipboard.writeText(t.value):Promise.reject()).catch(()=>document.execCommand('copy'));
  btn.textContent='Αντιγράφηκε ✓';setTimeout(()=>btn.textContent='Αντιγραφή απάντησης',1500)}
 """
+
+
+def cat_html(m: dict) -> str:
+    prods = (m.get("catalog") or {}).get("products") or []
+    if not prods:
+        return ""
+    e = html.escape
+    head = "Ακριβής κωδικός OE από τον κατάλογό σου" if m["catalog"]["oe"] else "Ταιριάζουν από τον κατάλογό σου"
+    items = "".join(f"<li><b>{e(s)}</b> — {e(t)}</li>" for s, t, *_ in prods[:5])
+    more = f"<li>…και άλλα {len(prods) - 5}</li>" if len(prods) > 5 else ""
+    return f"<div class='cat'><b>{head}:</b><ul>{items}{more}</ul></div>"
 
 
 def render(results, errors, manual, settings, now) -> str:
@@ -286,6 +449,7 @@ def render(results, errors, manual, settings, now) -> str:
             f"<div class='meta'>{badge}<span class='tag score'>βαθμός {m['score']}</span>"
             f"{e(r['source'])} · {when}</div><div>{tags}</div>"
             f"<div class='snip'>{e(plain(it['text']))}</div>"
+            f"{cat_html(m)}"
             f"<textarea id='d{i}'>{e(r['draft'])}</textarea>"
             f"<div class='btns'><a href='{e(it['link'])}' target='_blank'>Άνοιγμα συζήτησης</a>"
             f"<button class='sec' onclick=\"cp('d{i}',this)\">Αντιγραφή απάντησης</button></div></div>")
@@ -305,12 +469,14 @@ def render(results, errors, manual, settings, now) -> str:
 def main() -> int:
     cfg_path = Path(sys.argv[1]) if len(sys.argv) > 1 else HERE / "config.toml"
     cfg = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
-    settings = {"days_back": 7, "min_score": 3, "report_file": "anafora.html", **cfg.get("settings", {})}
+    settings = {"days_back": 7, "min_score": 3, "report_file": "anafora.html",
+                "catalog_file": "catalog.xlsx", "require_vehicle": True, **cfg.get("settings", {})}
     kwc = cfg["keywords"]
     kw = {"brands": {b: compile_terms(t) for b, t in kwc["brands"].items()},
           "parts": {c: compile_terms(t) for c, t in kwc["parts"].items()},
           "intent": compile_terms(kwc.get("intent", []))}
 
+    cat = load_catalog(HERE / settings["catalog_file"]) if settings["catalog_file"] else None
     seen = set(json.loads(SEEN_FILE.read_text(encoding="utf-8"))) if SEEN_FILE.exists() else set()
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(days=settings["days_back"])
@@ -332,13 +498,15 @@ def main() -> int:
                 continue
             if it["id"] in ids:
                 continue
-            m = score_item(it, kw)
+            m = score_item(it, kw, cat)
             if m["score"] < settings["min_score"]:
                 continue
+            if settings["require_vehicle"] and not (m["brands"] or m["catalog"]["oe"]):
+                continue  # χωρίς μάρκα/μοντέλο ή κωδικό δεν είναι συζήτηση για αυτοκίνητο
             ids.add(it["id"])
             results.append({"item": it, "match": m, "source": name,
                             "new": it["id"] not in seen,
-                            "draft": make_draft(m, cfg["store"])})
+                            "draft": make_draft(m, cfg["store"], kw)})
             kept += 1
         print(f"  ✓ {name}: {len(items)} αναρτήσεις, {kept} σχετικές")
 

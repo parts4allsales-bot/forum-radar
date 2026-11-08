@@ -13,6 +13,8 @@ search_url = "https://parts4all.gr/index.php?route=product/search&search={q}"
 days_back = 7        # πόσο παλιές συζητήσεις να δείχνει
 min_score = 3        # πόσο "σίγουρο" πρέπει να είναι ένα αποτέλεσμα (2 = περισσότερα, 4 = λιγότερα)
 report_file = "docs/index.html"
+catalog_file = "catalog.xlsx"   # οι τίτλοι προϊόντων σου (στήλη Α κωδικός, Β τίτλος)
+require_vehicle = true          # να δείχνει μόνο συζητήσεις με μάρκα/μοντέλο ή κωδικό OE
 
 # ------------------------------------------------------------
 #  ΠΗΓΕΣ RSS — fora, Reddit, Google Alerts
@@ -66,7 +68,7 @@ Audi     = ["Audi", "Άουντι", "A1", "A3", "A4", "A5", "A6", "Q3", "Q5", "Q
 BMW      = ["BMW", "Μπέμβε", "E36", "E46", "E39", "E60", "E87", "E90", "E91", "E92", "F10", "F20", "F30", "X1", "X3", "X5", "Σειρά 1", "Σειρά 3", "Σειρά 5"]
 Mercedes = ["Mercedes", "Μερσεντές", "Benz", "W202", "W203", "W204", "W205", "W210", "W211", "W212", "W168", "W169", "W176", "C180", "C200", "C220", "E220", "A160", "A180", "Vito", "Sprinter", "CLA", "GLA"]
 Toyota   = ["Toyota", "Τογιότα", "Yaris", "Γιάρις", "Corolla", "Κορόλα", "Auris", "Avensis", "Aygo", "RAV4", "Hilux", "Prius", "CHR", "C-HR", "Verso"]
-"Άλλες"  = ["Seat", "Ibiza", "Leon", "Skoda", "Octavia", "Fabia", "Opel", "Corsa", "Astra", "Ford", "Fiesta", "Focus", "Fiat", "Punto", "Peugeot", "Citroen", "Renault", "Clio", "Nissan", "Micra", "Qashqai", "Hyundai", "i10", "i20", "Kia", "Suzuki", "Swift", "Honda", "Civic", "Mazda"]
+"Άλλες"  = ["Seat", "Ibiza", "Leon", "Skoda", "Octavia", "Fabia", "Opel", "Corsa", "Astra", "Ford", "Fiesta", "Focus", "Fiat", "Punto", "Peugeot", "Citroen", "Renault", "Clio", "Nissan", "Micra", "Qashqai", "Hyundai", "i10", "i20", "Kia", "Suzuki", "Swift", "Honda", "Civic", "Mazda", "Jeep", "Volvo", "Land Rover", "Range Rover", "Chrysler", "Lexus", "Alfa Romeo", "Subaru", "Dacia", "Dodge", "Porsche", "Iveco", "Mitsubishi", "Chevrolet", "Daewoo", "Saab", "Daihatsu", "Lancia", "Jaguar", "Infiniti", "SsangYong", "Isuzu"]
 
 # Γράψε κάθε λέξη όπως θες να φαίνεται (με τόνους)· στην αναζήτηση δεν μετράνε τόνοι/κεφαλαία.
 [keywords.parts]
