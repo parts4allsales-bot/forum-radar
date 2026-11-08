@@ -464,6 +464,44 @@ def render(results, errors, manual, settings, now) -> str:
     return "".join(out)
 
 
+# ---------------------------------------------------------------- ειδοποιήσεις
+
+def notify(results: list, cfg: dict) -> None:
+    """Στέλνει ειδοποίηση (ntfy) για κάθε ΝΕΑ συζήτηση — εμφανίζεται κάτω δεξιά στα Windows."""
+    conf = cfg.get("notify") or {}
+    topic = conf.get("ntfy_topic")
+    new = [r for r in results if r["new"]]
+    if not topic or not new:
+        return
+    server = conf.get("ntfy_server", "https://ntfy.sh").rstrip("/")
+    report_url = conf.get("report_url", "")
+    limit = int(conf.get("max_per_run", 5))
+
+    def send(title: str, message: str, click: str) -> None:
+        payload = {"topic": topic, "title": title, "message": message, "tags": ["wrench"]}
+        if click:
+            payload["click"] = click
+        if report_url:
+            payload["actions"] = [{"action": "view", "label": "Αναφορά", "url": report_url}]
+        req = urllib.request.Request(server, data=json.dumps(payload).encode("utf-8"),
+                                     headers={"Content-Type": "application/json", "User-Agent": USER_AGENT})
+        try:
+            urllib.request.urlopen(req, timeout=15).read()
+        except Exception as ex:  # noqa: BLE001 — η ειδοποίηση δεν πρέπει να σταματά το ραντάρ
+            print(f"  ! Ειδοποίηση απέτυχε: {ex}")
+
+    for r in new[:limit]:
+        it, m = r["item"], r["match"]
+        msg = plain(it["title"], 200)
+        prods = (m.get("catalog") or {}).get("products") or []
+        if prods:
+            msg += f"\nΈχεις: {prods[0][0]}" + (f" (+{len(prods) - 1} ακόμα)" if len(prods) > 1 else "")
+        send("Κάποιος ψάχνει ανταλλακτικό", msg, it["link"])
+    if len(new) > limit:
+        send("Ραντάρ: κι άλλες συζητήσεις", f"Υπάρχουν ακόμα {len(new) - limit} νέες συζητήσεις.", report_url)
+    print(f"  ✓ Ειδοποιήσεις: {min(len(new), limit)}")
+
+
 # ---------------------------------------------------------------- κύριο
 
 def main() -> int:
@@ -517,6 +555,7 @@ def main() -> int:
     report.write_text(render(results, errors, cfg.get("manual", {}), settings, now.astimezone(TZ)),
                       encoding="utf-8")
     SEEN_FILE.write_text(json.dumps(sorted(seen | ids), ensure_ascii=False), encoding="utf-8")
+    notify(results, cfg)
     print(f"\nΈτοιμο: {len(results)} συζητήσεις ({sum(r['new'] for r in results)} νέες) → {report}")
     return 0
 

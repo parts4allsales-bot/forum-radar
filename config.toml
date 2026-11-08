@@ -42,6 +42,16 @@ url  = "https://www.reddit.com/r/greece/search.rss?q=ανταλλακτικό+OR
 # url  = "https://forum.example.gr/forums/-/index.rss"
 
 # ------------------------------------------------------------
+#  ΕΙΔΟΠΟΙΗΣΕΙΣ (ntfy) — κάτω δεξιά στα Windows / στο κινητό
+#  Άνοιξε https://ntfy.sh/app και κάνε "Subscribe" στο παρακάτω όνομα.
+# ------------------------------------------------------------
+
+[notify]
+ntfy_topic = "parts4all-radar-377sdzxrf2"
+report_url = "https://parts4allsales-bot.github.io/forum-radar/"
+max_per_run = 5
+
+# ------------------------------------------------------------
 #  ΧΕΙΡΟΚΙΝΗΤΟΙ ΕΛΕΓΧΟΙ — Facebook, Instagram, TikTok, X, car.gr
 #  Αυτά δεν διαβάζονται αυτόματα. Η αναφορά σου βγάζει έτοιμα links
 #  αναζήτησης· τα ανοίγεις με τον δικό σου λογαριασμό.
