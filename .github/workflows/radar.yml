@@ -18,6 +18,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Εγκατάσταση openpyxl (για τον κατάλογο)
+        run: pip install openpyxl
       - name: Τρέξιμο ραντάρ
         run: python radar.py
       - name: Αποθήκευση αναφοράς
